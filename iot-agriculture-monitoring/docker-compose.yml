@@ -1,0 +1,88 @@
+version: '3.8'
+services:
+  sensor-simulator:
+    build: ./local-services/sensor-simulator
+    environment:
+      - REDIS_HOST=redis
+      - API_GATEWAY_URL=http://api-gateway:3000
+    depends_on:
+      - redis
+      - api-gateway
+
+  api-gateway:
+    build: ./local-services/api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_HOST=redis
+      - CLOUD_ENDPOINT=${CLOUD_ENDPOINT:-http://localhost:3000}
+      - OCI_VAULT_SECRET=${OCI_VAULT_SECRET:-default-secret}
+    depends_on:
+      - redis
+
+  data-processor:
+    build: ./local-services/data-processor
+    environment:
+      - REDIS_HOST=redis
+      - MYSQL_HOST=mysql
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=example
+      - MONGODB_URI=mongodb://mongoadmin:secret@mongodb:27017/iot_agriculture?authSource=admin
+    depends_on:
+      - redis
+      - mysql
+      - mongodb
+
+  dashboard:
+    build: ./local-services/dashboard
+    volumes:
+      - ./local-services/dashboard:/usr/share/nginx/html:ro
+    environment:
+      - API_GATEWAY_URL=http://api-gateway:3000
+      - CLOUD_DASHBOARD_URL=${CLOUD_DASHBOARD_URL:-http://localhost:8088}
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=example
+      - MYSQL_DATABASE=iot_agriculture
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/mysql:/docker-entrypoint-initdb.d
+
+  mongodb:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./database/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=mongoadmin
+      - MONGO_INITDB_ROOT_PASSWORD=secret
+      - MONGO_INITDB_DATABASE=iot_agriculture
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8088:80"
+    volumes:
+      - ./local-services/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./local-services/dashboard:/usr/share/nginx/html:ro
+    depends_on:
+      - api-gateway
+      - dashboard
+
+volumes:
+  redis_data:
+  mysql_data:
+  mongo_data:

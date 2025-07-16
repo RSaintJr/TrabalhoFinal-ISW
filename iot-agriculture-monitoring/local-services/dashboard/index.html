@@ -1,0 +1,563 @@
+<!-- local-services/dashboard/index.html -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Agriculture Dashboard</title>
+    <!-- Chart.js and required dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .dashboard-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .trends-chart {
+            height: 400px;
+        }
+        .distribution-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .distribution-title {
+            margin-bottom: 20px;
+            color: #2c3e50;
+            font-size: 1.2em;
+        }
+        .distribution-chart {
+            height: 400px;
+            max-width: 800px;
+            margin: 0 auto;
+            position: relative;
+        }
+        .chart-title {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-size: 1.2em;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-online { background-color: #27ae60; }
+        .status-offline { background-color: #e74c3c; }
+        .status-warning { background-color: #f39c12; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-header">
+            <h1>🌱 IoT Agriculture Monitoring Dashboard</h1>
+            <p>Monitoramento em Tempo Real dos Sensores da Fazenda</p>
+        </div>
+        
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <h3>Temperatura Média</h3>
+                <div class="metric-value" id="avgTemperature">--°C</div>
+                <div><span class="status-indicator status-online"></span>Online</div>
+            </div>
+            
+            <div class="metric-card">
+                <h3>Umidade Média</h3>
+                <div class="metric-value" id="avgHumidity">--%</div>
+                <div><span class="status-indicator status-online"></span>Online</div>
+            </div>
+            
+            <div class="metric-card">
+                <h3>pH Médio</h3>
+                <div class="metric-value" id="avgPH">--</div>
+                <div><span class="status-indicator status-online"></span>Online</div>
+            </div>
+            
+            <div class="metric-card">
+                <h3>Sensores Ativos</h3>
+                <div class="metric-value" id="activeSensors">--</div>
+                <div><span class="status-indicator status-online"></span>Sistema Operacional</div>
+            </div>
+        </div>
+        
+        <div class="chart-container trends-chart">
+            <h3 class="chart-title">Tendências dos Sensores (Últimas 24h)</h3>
+            <canvas id="sensorChart"></canvas>
+        </div>
+        
+        <div class="distribution-container">
+            <h3 class="distribution-title">Distribuição por Localização</h3>
+            <div class="distribution-chart">
+                <canvas id="locationChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        class IoTDashboard {
+            constructor() {
+                this.sensorData = [];
+                this.charts = {};
+                Chart.defaults.font.family = 'Arial, sans-serif';
+                Chart.defaults.font.size = 12;
+                Chart.defaults.color = '#2c3e50';
+                this.initCharts();
+                this.startDataFetch();
+            }
+            
+            initCharts() {
+                // Combined sensor chart configuration
+                const sensorCtx = document.getElementById('sensorChart').getContext('2d');
+                this.charts.sensor = new Chart(sensorCtx, {
+                    type: 'line',
+                    data: {
+                        datasets: [
+                            {
+                                label: 'Temperatura',
+                                data: [],
+                                borderColor: '#e74c3c',
+                                backgroundColor: 'rgba(231, 76, 60, 0.05)',
+                                yAxisID: 'temperature',
+                                fill: true,
+                                tension: 0.2,
+                                pointRadius: 2,
+                                borderWidth: 1.5,
+                                spanGaps: true
+                            },
+                            {
+                                label: 'Umidade',
+                                data: [],
+                                borderColor: '#3498db',
+                                backgroundColor: 'rgba(52, 152, 219, 0.05)',
+                                yAxisID: 'humidity',
+                                fill: true,
+                                tension: 0.2,
+                                pointRadius: 2,
+                                borderWidth: 1.5,
+                                spanGaps: true
+                            },
+                            {
+                                label: 'pH',
+                                data: [],
+                                borderColor: '#2ecc71',
+                                backgroundColor: 'rgba(46, 204, 113, 0.05)',
+                                yAxisID: 'ph',
+                                fill: true,
+                                tension: 0.2,
+                                pointRadius: 2,
+                                borderWidth: 1.5,
+                                spanGaps: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        },
+                        plugins: {
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    title: function(context) {
+                                        const date = new Date(context[0].parsed.x);
+                                        return date.toLocaleTimeString('pt-BR');
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'hour',
+                                    stepSize: 1,
+                                    displayFormats: {
+                                        hour: 'HH:mm'
+                                    }
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Horário',
+                                    padding: {
+                                        top: 20,
+                                        bottom: 0
+                                    }
+                                },
+                                ticks: {
+                                    padding: 10,
+                                    maxRotation: 0,
+                                    minRotation: 0,
+                                    autoSkip: true,
+                                    autoSkipPadding: 20,
+                                    font: {
+                                        size: 11
+                                    }
+                                },
+                                grid: {
+                                    drawBorder: false,
+                                    color: 'rgba(0,0,0,0.1)'
+                                }
+                            },
+                            temperature: {
+                                type: 'linear',
+                                position: 'left',
+                                min: 20,
+                                max: 35,
+                                title: {
+                                    display: true,
+                                    text: 'Temperatura (°C)',
+                                    padding: {
+                                        bottom: 10
+                                    }
+                                },
+                                ticks: {
+                                    padding: 5
+                                }
+                            },
+                            humidity: {
+                                type: 'linear',
+                                position: 'right',
+                                min: 40,
+                                max: 80,
+                                title: {
+                                    display: true,
+                                    text: 'Umidade (%)',
+                                    padding: {
+                                        bottom: 10
+                                    }
+                                },
+                                grid: {
+                                    drawOnChartArea: false
+                                },
+                                ticks: {
+                                    padding: 5
+                                }
+                            },
+                            ph: {
+                                type: 'linear',
+                                position: 'right',
+                                min: 5.5,
+                                max: 8.5,
+                                title: {
+                                    display: true,
+                                    text: 'pH',
+                                    padding: {
+                                        bottom: 10
+                                    }
+                                },
+                                grid: {
+                                    drawOnChartArea: false
+                                },
+                                ticks: {
+                                    padding: 5
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Location distribution chart
+                const locationCtx = document.getElementById('locationChart').getContext('2d');
+                this.charts.location = new Chart(locationCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            data: [],
+                            backgroundColor: [
+                                '#e74c3c', '#3498db', '#2ecc71'
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        layout: {
+                            padding: {
+                                right: 120,
+                                top: 20,
+                                bottom: 20
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                align: 'center',
+                                labels: {
+                                    padding: 15,
+                                    boxWidth: 15,
+                                    font: {
+                                        size: 12,
+                                        weight: 'bold'
+                                    },
+                                    generateLabels: function(chart) {
+                                        const data = chart.data;
+                                        if (data.labels.length && data.datasets.length) {
+                                            return data.labels.map((label, i) => ({
+                                                text: `${label}\n${data.datasets[0].data[i]} sensores`,
+                                                fillStyle: data.datasets[0].backgroundColor[i],
+                                                hidden: isNaN(data.datasets[0].data[i]),
+                                                index: i,
+                                                lineWidth: 1,
+                                                strokeStyle: '#fff'
+                                            }));
+                                        }
+                                        return [];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            startDataFetch() {
+                this.fetchSensorData();
+                setInterval(() => this.fetchSensorData(), 5000);
+            }
+            
+            async fetchSensorData() {
+                try {
+                    console.log('Iniciando busca de dados dos sensores...');
+                    const apiUrl = '/sensor-data/all';
+                    console.log('Fazendo requisição para:', apiUrl);
+                    
+                    const response = await fetch(apiUrl, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'Cache-Control': 'no-cache'
+                        }
+                    });
+                    console.log('Resposta da API:', response.status, response.statusText);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        console.error('Erro ao buscar dados:', response.status, response.statusText, errorData);
+                        this.updateStatusIndicators('offline');
+                        return;
+                    }
+                    
+                    const data = await response.json();
+                    console.log('Dados recebidos:', data.length, 'registros');
+                    if (data.length > 0) {
+                        console.log('Amostra dos dados:', {
+                            primeiro: data[0],
+                            ultimo: data[data.length - 1]
+                        });
+                    }
+                    
+                    if (!Array.isArray(data)) {
+                        console.error('Dados inválidos recebidos:', data);
+                        this.updateStatusIndicators('offline');
+                        return;
+                    }
+                    
+                    if (data.length === 0) {
+                        console.log('Nenhum dado de sensor encontrado');
+                        this.updateStatusIndicators('offline');
+                        return;
+                    }
+                    
+                    this.processSensorData(data);
+                    this.updateStatusIndicators('online');
+                } catch (error) {
+                    console.error('Falha ao buscar dados dos sensores:', error);
+                    this.updateStatusIndicators('offline');
+                }
+            }
+            
+            processSensorData(data) {
+                console.log('Processando dados dos sensores:', data.length, 'registros');
+                try {
+                    // Agrupar dados por tipo de sensor
+                    const temperatureData = data.filter(d => d.sensor_type === 'temperature');
+                    const humidityData = data.filter(d => d.sensor_type === 'humidity');
+                    const phData = data.filter(d => d.sensor_type === 'ph');
+                    
+                    console.log(`Dados agrupados - Temperatura: ${temperatureData.length}, Umidade: ${humidityData.length}, pH: ${phData.length}`);
+                    
+                    // Calcular médias
+                    const avgTemp = this.calculateAverage(temperatureData);
+                    const avgHumidity = this.calculateAverage(humidityData);
+                    const avgPH = this.calculateAverage(phData);
+                    
+                    // Atualizar valores na interface
+                    document.getElementById('avgTemperature').textContent = avgTemp.toFixed(1) + '°C';
+                    document.getElementById('avgHumidity').textContent = avgHumidity.toFixed(1) + '%';
+                    document.getElementById('avgPH').textContent = avgPH.toFixed(1);
+                    document.getElementById('activeSensors').textContent = data.length;
+                    
+                    // Atualizar gráficos
+                    this.updateCharts(data);
+                } catch (error) {
+                    console.error('Erro ao processar dados:', error);
+                }
+            }
+            
+            calculateAverage(data) {
+                if (!data || data.length === 0) return 0;
+                const sum = data.reduce((acc, curr) => acc + curr.value, 0);
+                return sum / data.length;
+            }
+            
+            updateCharts(data) {
+                try {
+                    // Ordenar dados por timestamp
+                    const sortedData = [...data].sort((a, b) => 
+                        new Date(a.timestamp) - new Date(b.timestamp)
+                    );
+                    
+                    // Preparar dados para os gráficos
+                    const temperatureData = this.prepareChartData(sortedData, 'temperature');
+                    const humidityData = this.prepareChartData(sortedData, 'humidity');
+                    const phData = this.prepareChartData(sortedData, 'ph');
+                    
+                    // Atualizar dados do gráfico de sensores
+                    this.charts.sensor.data.datasets[0].data = temperatureData;
+                    this.charts.sensor.data.datasets[1].data = humidityData;
+                    this.charts.sensor.data.datasets[2].data = phData;
+                    this.charts.sensor.update();
+                    
+                    // Atualizar gráfico de localização
+                    this.updateLocationChart(data);
+                } catch (error) {
+                    console.error('Erro ao atualizar gráficos:', error);
+                }
+            }
+            
+            prepareChartData(data, sensorType) {
+                try {
+                    const now = new Date();
+                    const dayAgo = new Date(now - 24 * 3600000);
+                    
+                    // Gerar timestamps de exemplo para teste (remover em produção)
+                    const testData = [];
+                    for (let i = 0; i < 24; i++) {
+                        const timestamp = new Date(dayAgo.getTime() + i * 3600000);
+                        testData.push({
+                            sensor_type: sensorType,
+                            timestamp: timestamp.toISOString(),
+                            value: Math.random() * (
+                                sensorType === 'temperature' ? 15 : 
+                                sensorType === 'humidity' ? 40 : 
+                                3
+                            ) + (
+                                sensorType === 'temperature' ? 20 :
+                                sensorType === 'humidity' ? 40 :
+                                5.5
+                            )
+                        });
+                    }
+                    
+                    // Usar dados de teste por enquanto
+                    data = testData;
+                    
+                    const filteredData = data
+                        .filter(d => d.sensor_type === sensorType)
+                        .filter(d => {
+                            const timestamp = new Date(d.timestamp);
+                            return !isNaN(timestamp.getTime()) && timestamp >= dayAgo;
+                        });
+                    
+                    // Ordenar por timestamp
+                    const sortedData = filteredData.sort((a, b) => 
+                        new Date(a.timestamp) - new Date(b.timestamp)
+                    );
+                    
+                    // Converter para formato do gráfico
+                    const chartData = sortedData.map(d => ({
+                        x: new Date(d.timestamp).getTime(),
+                        y: parseFloat(d.value)
+                    }));
+                    
+                    return chartData;
+                } catch (error) {
+                    console.error(`Erro ao preparar dados para ${sensorType}:`, error);
+                    return [];
+                }
+            }
+            
+            updateLocationChart(data) {
+                // Mapear nomes mais descritivos para as localizações
+                const locationMapping = {
+                    'field_1': 'Setor Norte',
+                    'field_2': 'Setor Sul',
+                    'field_0': 'Setor Central'
+                };
+                
+                // Agrupar dados por localização
+                const locationCounts = data.reduce((acc, curr) => {
+                    const locationName = locationMapping[curr.location] || curr.location;
+                    acc[locationName] = (acc[locationName] || 0) + 1;
+                    return acc;
+                }, {});
+                
+                this.charts.location.data.labels = Object.keys(locationCounts);
+                this.charts.location.data.datasets[0].data = Object.values(locationCounts);
+                this.charts.location.update();
+            }
+            
+            updateStatusIndicators(status) {
+                const indicators = document.querySelectorAll('.status-indicator');
+                indicators.forEach(indicator => {
+                    indicator.className = 'status-indicator';
+                    indicator.classList.add(`status-${status}`);
+                });
+                
+                const parentDivs = document.querySelectorAll('.status-indicator + div');
+                parentDivs.forEach(div => {
+                    div.textContent = status === 'online' ? 'Online' : 'Offline';
+                });
+            }
+        }
+        
+        // Initialize dashboard
+        new IoTDashboard();
+    </script>
+</body>
+</html>

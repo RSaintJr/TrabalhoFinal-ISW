@@ -1,0 +1,4 @@
+redis>=4.0.0
+pymongo>=4.13.0
+mysql-connector-python>=8.0.0
+backoff>=2.2.0 
